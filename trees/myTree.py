@@ -3,32 +3,35 @@ __author__ = "andrey_m"
 from numpy import average
 import numpy
 import pydot
+from sklearn.base import BaseEstimator
 
 
-class MyClassifier():
+class MyClassifier(BaseEstimator):
     """ Classifier : contains chosen parameters for fitting
     """
     def __init__(self,
                  min_delta_imp=0,
-                 split_stop_min_list_size=10,
+                 min_list_size=10,
                  max_tree_node_amount=100,
                  ):
-        self.min_list_size = split_stop_min_list_size
+        self.min_list_size = min_list_size
         self.min_delta_imp = min_delta_imp
         self.max_tree_node_amount = max_tree_node_amount
         self.tree = None
+        print "Built Clf: delta_imp = " + str(self.min_delta_imp) + " leaf_size = " + \
+              str(self.min_list_size) + " nodes = " + str(self.max_tree_node_amount)
 
     def fit(self, x, y):
         """ Builds decision tree, using Classifier parameters
 
         :param x: input correct, no-None np.array(n x m) - array of features
         :param y: input correct, no-None np.array(n x 1) - array of targets
-        :return: BinaryTree (see BinaryTree.__doc__)
+        :return: self
         """
+
         print "Lets build tree"
         self.tree = BinaryTree()
         self.tree.add_node(x, y)
-
 
         tn = self.tree.get_undef_element()
         while tn != '':
@@ -36,10 +39,10 @@ class MyClassifier():
             if b or len(self.tree.storage) >= self.max_tree_node_amount:
                 tn.set_type_leaf()
             else:
-                col, border = get_best_separation(tn.data_x, tn.data_y, self.min_delta_imp)
+                col, border = self.get_best_separation(tn.data_x, tn.data_y)
 
                 if col == -1:
-                    # Min delta impurity criteria
+                    # Min delta impurity criteria worked - there is no optimal separation
                     tn.set_type_leaf()
                 else:
                     x_lt, y_lt = select_data_less(tn.data_x, tn.data_y, col, border)
@@ -51,7 +54,7 @@ class MyClassifier():
                     tn.add_leaves(lt, rt)
                     tn.data_x = ''
             tn = self.tree.get_undef_element()
-        return self.tree
+        return self
 
     def predict(self, X):
         if self.tree is None:
@@ -69,6 +72,21 @@ class MyClassifier():
                 curr_node = self.tree.storage[node_index]
             targets.append(curr_node.answer)
         return numpy.array(targets)
+
+    def score(self, x, y):
+        """
+        Returns R^2 coefficient
+        :param x: features to predict targets
+        :param y: real target values
+        """
+        y_true_mean = average(y)
+        delta_y_base = [(y_true - y_true_mean)**2 for y_true in y]
+        v = sum(delta_y_base)
+
+        y_pred = self.predict(x)
+        delta_y_pred = [(y[i] - y_pred[i])**2 for i in range(len(y))]
+        u = sum(delta_y_pred)
+        return 1 - u*1.0/v
 
     # Calculates absolute error on trained classifier
     def calc_error(self, x, y):
@@ -111,7 +129,46 @@ class MyClassifier():
                     self.tree.storage[j].right -= 2
             r_new = self.calc_error(x, y) + alpha*len(self.tree.storage)
         print "pruning ends with " + str(len(self.tree.storage)) + " nodes"
-        return self.tree
+        return self
+
+    def get_best_separation(self, x, y):
+        delta_imp = -100500
+        column = -1
+        border = ""
+
+        for i in range(x.shape[1]):
+            new_border, new_delta_imp = self.get_best_separation_on_column(x, y, i)
+            if new_delta_imp > delta_imp:
+                delta_imp = new_delta_imp
+                column = i
+                border = new_border
+        if delta_imp < self.min_delta_imp:
+            return -1, ''
+        return column, border
+
+    # Depending on i - select best separation with maximal DELTA_IMPURITY
+    def get_best_separation_on_column(self, x, y, i):
+
+        imp_root = compute_impurity(y)
+        root_len = len(x)
+        xi = [x[row, i] for row in range(len(x))]
+        uq = numpy.unique(xi)
+
+        delta_imp = -100500
+        best_border = -1
+
+        for border in uq[0: len(uq)-1]:
+            #print "Check for " + str(border) + " from X[~, " + str(i) + "]"
+            x_left, y_left = select_data_less(x, y, i, border)
+            x_right, y_right = select_data_bigger(x, y, i, border)
+            imp_left = compute_impurity(y_left)
+            imp_right = compute_impurity(y_right)
+            new_delta_imp = imp_root - (len(y_left)*imp_left + len(y_right)*imp_right)/(root_len*1.0)
+            if new_delta_imp > delta_imp and self.min_list_size <= len(y_left) and self.min_list_size <= len(y_right):
+                delta_imp = new_delta_imp
+                best_border = border
+        #print ">>Delta impurity = " + str(delta_imp) + " on column " + str(i)
+        return best_border, delta_imp
 
 
 # Select elements from X[], Y[]: X[k, i]<j
@@ -129,52 +186,11 @@ def select_data_bigger(x, y, i, j):
     return x, y
 
 
-# Depending on i - select best separation with maximal DELTA_IMPURITY
-def get_best_separation_on_column(x, y, i):
-
-    imp_root = compute_impurity(y)
-    root_len = len(x)
-    xi = [x[row, i] for row in range(len(x))]
-    uq = numpy.unique(xi)
-
-    delta_imp = -100500
-    best_border = -1
-
-    for border in uq[0: len(uq)-1]:
-        print "Check for " + str(border) + " from X[~, " + str(i) + "]"
-        x_left, y_left = select_data_less(x, y, i, border)
-        x_right, y_right = select_data_bigger(x, y, i, border)
-        imp_left = compute_impurity(y_left)
-        imp_right = compute_impurity(y_right)
-        new_delta_impurity = imp_root - (len(y_left)*imp_left + len(y_right)*imp_right)/(root_len*1.0)
-        if new_delta_impurity > delta_imp:
-            delta_imp = new_delta_impurity
-            best_border = border
-        print ">>Delta impurity = " + str(new_delta_impurity)
-    return best_border, delta_imp
-
-
-def get_best_separation(x, y, mdi):
-    delta_imp = -100500
-    column = -1
-    border = ""
-
-    for i in range(x.shape[1]):
-        new_border, new_delta_imp = get_best_separation_on_column(x, y, i)
-        if new_delta_imp > delta_imp:
-            delta_imp = new_delta_imp
-            column = i
-            border = new_border
-    if delta_imp < mdi:
-        return -1, ''
-    return column, border
-
-
 def compute_impurity(ans_vector):
     method = "quad"
-    #                                                               Update this with new methods, add into Classifier
     avg = numpy.average(ans_vector)
     imps_on_positions = [(el-avg)**2 for el in ans_vector]
+    #return numpy.sum(imps_on_positions)/(len(ans_vector)*1.0)
     return numpy.sum(imps_on_positions)
 
 
@@ -200,6 +216,7 @@ class TreeNode:
 
     def set_type_leaf(self):
         self.type = "leaf"
+        #Lets take easiest decision
         self.answer = average(self.data_y)
 
     def set_condition(self, col, border):
@@ -208,11 +225,7 @@ class TreeNode:
 
     # Checks current node for chosen criteria of leaf
     def check_for_leaf(self, mls):
-        if len(self.data_y) < mls:
-            b = True
-        else:
-            b = False
-        return b
+        return len(self.data_y) < mls
 
     def print_node(self):
         print "node: " + str(self.column) + " " + str(self.border) + " Avg = " + str(self.answer) + " L " + \
@@ -244,10 +257,11 @@ class BinaryTree:
         return ''
 
     def name_of_the_node(self, index, feature_names):
-        if self.storage[index].type == "leaf":
-            return str(index) + ". avg = " + str(self.storage[index].answer) + \
-                ", am = " + str(self.storage[index].amount_of_vectors)
-        return str(index) + ". " + feature_names[self.storage[index].column] + " <= " + str(self.storage[index].border)
+        curr_leaf = self.storage[index]
+        if curr_leaf.type == "leaf":
+            return str(index) + ". avg = " + str(curr_leaf.answer) + \
+                ", am = " + str(curr_leaf.amount_of_vectors)
+        return str(index) + ". " + feature_names[curr_leaf.column] + " <= " + str(curr_leaf.border)
 
     def draw_me(self, feature_names, fl='gr.dotfile'):
         print "Drawing starts >>> " + fl

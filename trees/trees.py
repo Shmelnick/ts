@@ -10,18 +10,18 @@ import argparse
 import numpy
 import scipy.stats
 import sklearn.feature_extraction
-import pydot
 from myTree import MyClassifier
-from myTree import BinaryTree
+from sklearn.cross_validation import cross_val_score
+import sklearn.metrics as mx
 
 TARGET = "target"
 
 
 def choose_targets(source=2):
     """
-    0 = VK - CSV - file
-    1 = DT Tutorial (Seminar task)
-    2 = VK
+    0 = status, sex, relations, emotions
+    1 = age, gender, education
+    2 = friends, grad_year, emotions, albums (DEFAULT)
     :return: chosen columns for classification
     """
     if source == 0:
@@ -107,10 +107,11 @@ def print_set_stats(ds, target, feature_names):
     print_distribution(target)
 
 
-def build_classifier(min_delta_imp=30, min_list_size=2, max_tree_node_amount=100):
+def build_classifier(min_delta_imp=10, min_list_size=5, max_tree_node_amount=100):
     """ Build classifier
-    :param min_delta_imp: (=30) split-stopping criteria
-    :param min_list_size: (=2) -||-
+    :param min_delta_imp:           (=10)   split-stopping criteria
+    :param min_list_size:           (=5)    -//-
+    :param max_tree_node_amount:    (=100)  -//-
     :return: Classifier
     """
     return MyClassifier(min_delta_imp, min_list_size, max_tree_node_amount)
@@ -129,17 +130,24 @@ def main():
 
     print "parsed"
 
-    #VK
+    #Feature columns
     columns = choose_targets(2)
+
+    #Parsing
     x, y, feature_names = read_data_set(columns=columns, ds_path='data/data.csv')
     print_set_stats(x, y, feature_names)
 
-    cls = build_classifier(30, 2, 100)
-    model = cls.fit(x, y)
-    model.draw_me(feature_names)
+    cls = build_classifier(10, 5, 100)
+    cls = cls.fit(x, y)
+    cls.tree.draw_me(feature_names)
 
-    model = cls.pruning(x[len(y)*8/10:], y[len(y)*8/10:], 1)
-    model.draw_me(feature_names, 'after_pruning')
+    score = cls.score(x, y)
+    print "R^2 score = " + str(score)
+
+#    cls_pr = cls.pruning(x[len(y)*8/10:], y[len(y)*8/10:], 0.05)
+#    cls_pr.tree.draw_me(feature_names, 'after_pruning')
+#    score_after_pruning = cls_pr.score(x, y)
+#    print "R^2 score after pruning = " + str(score_after_pruning)
 
 
 def parse_args():
